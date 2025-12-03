@@ -16,7 +16,7 @@ try:
     nltk.data.find('tokenizers/punkt')
     nltk.data.find('corpora/wordnet')
     nltk.data.find('corpora/stopwords')
-except nltk.downloader.DownloadError:
+except LookupError:
     st.info("Downloading NLTK resources...")
     try:
         nltk.download('punkt')
