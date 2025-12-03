@@ -6,6 +6,20 @@ import numpy as np
 from joblib import load
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+import nltk 
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+import re
+
+# Initialize NLTK resources
+try:
+    stop_words = set(stopwords.words('english'))
+    lemmatizer = WordNetLemmatizer()
+except LookupError:
+    st.error("NLTK data (stopwords, wordnet) not found. Please ensure resources are downloaded and accessible.")
+    st.stop()
+
 # --- 1. Constants and Initial Setup ---
 MODEL_PATH = 'naive_bayes_intent_model.joblib'
 VECTORIZER_PATH = 'tfidf_vectorizer.joblib'
@@ -38,6 +52,26 @@ def load_resources():
 
 nb_model, vectorizer, df_data = load_resources()
 
+def preprocess_text(text):
+    """Applies the same NLTK preprocessing steps as used during training."""
+    # 1. Convert to Lowercase
+    text = text.lower()
+    
+    # 2. Remove Punctuation and Special Characters
+    text = re.sub(r'[^\w\s]', '', text)
+    
+    # 3. Tokenization
+    tokens = word_tokenize(text)
+    
+    # 4. Stopword Removal
+    tokens = [word for word in tokens if word not in stop_words]
+    
+    # 5. Lemmatization (Key Enhancement)
+    tokens = [lemmatizer.lemmatize(word) for word in tokens]
+    
+    # Rejoin tokens into a single string
+    return ' '.join(tokens)
+
 # --- 3. Predefined Responses ---
 
 responses = {
@@ -60,7 +94,7 @@ def chatbot_reply_nb(user_input, model, vectorizer, responses):
     if not user_input.strip():
         return "Please enter a question to start the conversation.", "Empty Input", 0.0
 
-    processed_input = user_input.lower()
+    processed_input = preprocess_text(user_input)
     vector = vectorizer.transform([processed_input])
     probabilities = model.predict_proba(vector)[0]
     intent_index = np.argmax(probabilities)
@@ -137,6 +171,3 @@ for message in st.session_state.messages:
 if prompt := st.chat_input("Ask a question about the hotel:"):
     handle_chat_interaction(prompt)
 
-st.markdown("---")
-st.subheader("💡 Supported Intents")
-st.code(", ".join(responses.keys()))
