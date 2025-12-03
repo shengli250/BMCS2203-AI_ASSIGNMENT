@@ -105,7 +105,7 @@ to classify user intent and provide a relevant, predefined response.
 @st.cache_resource
 def load_resources():
     model_path = 'naive_bayes_intent_model.joblib'
-    vectorizer_path = 'tfidf_vectorizer.joblib'
+    vectorizer_path = 'tfidf_vectorizerNB.joblib'
     
     if not os.path.exists(model_path) or not os.path.exists(vectorizer_path):
         st.error(f"Required files not found: '{model_path}' and/or '{vectorizer_path}'.")
