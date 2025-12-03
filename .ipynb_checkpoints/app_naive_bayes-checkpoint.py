@@ -1,49 +1,18 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
+import joblib
 import nltk
-from joblib import load
-import re
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
-import os
+import re
 
-# --- NLTK Resource Setup (Kept unchanged) ---
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/wordnet')
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    try:
-        # Note: The original code had an extra 'tokenizers/punkt_tab' check, which is unusual.
-        # Standardizing the download attempts here for common resources.
-        nltk.download('punkt')
-        nltk.download('punkt_tab')
-        nltk.download('wordnet')
-        nltk.download('stopwords')
-    except Exception as e:
-        st.error(f"Failed to download NLTK resources: {e}")
-        st.stop()
+# --- Configuration Parameters ---
+CONFIDENCE_THRESHOLD = 0.75 # 置信度阈值：低于此值则视为“无法识别的意图”
 
-# Initialize NLTK resources
-stop_words = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
-
-# --- Preprocessing Function (Kept unchanged) ---
-def preprocess_text(text):
-    if not isinstance(text, str):
-        return "" 
-    text = text.lower()
-    text = re.sub(r'[^\w\s]', '', text)
-    tokens = word_tokenize(text)
-    tokens = [word for word in tokens if word not in stop_words]
-    tokens = [lemmatizer.lemmatize(word) for word in tokens]
-    return ' '.join(tokens)
-
-# --- Chatbot Core Function (Focus of modification) ---
-# Predefined fixed responses (Retrieval System)
-RESPONSES = {
+# --- A. CHATBOT RESPONSE LOOKUP TABLE ---
+RESPONSE_DICT = {
+    # 使用您训练代码中的响应字典，但调整为更正式的 Streamlit 部署格式
     "ask_room_price": "Our rooms start from RM180 per night.",
     "ask_availability": "We currently have several rooms available.",
     "ask_facilities": "We offer free Wi-Fi, breakfast, pool, gym and parking.",
@@ -53,107 +22,144 @@ RESPONSES = {
     "ask_booking" : "You can book directly through our website or at the front desk.",
     "ask_cancellation" : "Cancellations are free up to 24 hours before arrival.",
     "greeting" : "Hello! How may I assist you today?",
-    "goodbye" : "Goodbye! Have a great day!"
+    "goodbye" : "Goodbye! Have a great day!",
+    # Default response for unrecognized intents
+    "unrecognized_intent": "I apologize, but I currently cannot understand your request. Could you please try rephrasing your question?",
 }
 
-# 🌟 Key Modification: Added confidence check
-def chatbot_reply_nb(user_input, model, vectorizer, responses):
-    # 1. Preprocessing
-    cleaned_input = preprocess_text(user_input)
+# --- B. NLTK Download and Preprocessing Setup ---
+# 使用 st.cache_resource 来确保 NLTK 资源只下载一次
+@st.cache_resource(show_spinner="Downloading NLTK resources...")
+def download_nltk_resources():
+    """Downloads necessary NLTK resources into the Streamlit cache."""
+    try:
+        # NLTK 下载
+        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True) # 这通常不是必需的
+        nltk.download('wordnet', quiet=True)
+        nltk.download('stopwords', quiet=True)
+        # 初始化 NLTK 对象
+        stop_words = set(stopwords.words('english'))
+        lemmatizer = WordNetLemmatizer()
+        return True, stop_words, lemmatizer
+    except Exception as e:
+        st.error(f"Failed to download NLTK resources: {e}")
+        return False, set(), None
 
-    # 2. Feature Extraction
-    if not cleaned_input:
-        return "Please provide a valid question.", "Empty Input", 1.0 # Returns a clear error message
+is_nltk_ready, stop_words, lemmatizer = download_nltk_resources()
 
-    vector = vectorizer.transform([cleaned_input])
-
-    # 3. Intent Prediction and Confidence
-    # Naive Bayes model's predict_proba returns the probability for each class
-    probabilities = model.predict_proba(vector)[0]
-    intent_index = np.argmax(probabilities)
-    confidence = probabilities[intent_index]
-    intent = model.classes_[intent_index]
-
-    # 🌟 Set Confidence Threshold (Adjustable)
-    CONFIDENCE_THRESHOLD = 0.1 
-    
-    # 4. Retrieval and Fallback Logic
-    if confidence < CONFIDENCE_THRESHOLD:
-        # 🌟 Low Confidence Fallback
-        response = "I'm sorry, I don't seem to understand that question. Could you please rephrase or ask about price, availability, or facilities?"
-        predicted_intent = "Fallback (Low Confidence)"
-    else:
-        # High confidence, check for predefined response
-        response = responses.get(intent, 
-            f"Sorry, I predicted the intent **'{intent}'** with high confidence ({confidence:.2f}), but I don't have a specific response for that yet. Please rephrase your question."
-        )
-        predicted_intent = intent
+def preprocess_text(text):
+    """Applies the same preprocessing steps as the training script."""
+    if not lemmatizer:
+        return "" # Handle case where NLTK setup failed
         
-    return response, predicted_intent, confidence
+    # 1. Convert to Lowercase
+    text = text.lower()
+    # 2. Remove Punctuation and Special Characters
+    text = re.sub(r'[^\w\s]', '', text)
+    # 3. Tokenization
+    tokens = word_tokenize(text)
+    # 4. Stopword Removal
+    tokens = [word for word in tokens if word not in stop_words]
+    # 5. Lemmatization
+    tokens = [lemmatizer.lemmatize(word) for word in tokens]
+    # Rejoin tokens into a single string
+    return ' '.join(tokens)
 
-# --- Streamlit Application Layout and Logic ---
-
-# Title and Description
-st.title("🛎️ Hotel Booking Intent Chatbot")
-st.markdown("""
-This chatbot uses a **Multinomial Naive Bayes** model trained on TF-IDF features 
-to classify user intent and provide a relevant, predefined response.
-**New:** It now includes a **confidence check** to provide a fallback message if it's unsure.
-""")
-
-# Load Model and Vectorizer (Use st.cache_resource for efficiency)
+# --- C. Model Loading and Caching ---
 @st.cache_resource
 def load_resources():
-    model_path = 'naive_bayes_intent_model.joblib'
-    vectorizer_path = 'tfidf_vectorizerNB.joblib'
-    
-    if not os.path.exists(model_path) or not os.path.exists(vectorizer_path):
-        st.error(f"Required files not found: '{model_path}' and/or '{vectorizer_path}'.")
-        st.warning("Please ensure you run your training script first to save the model and vectorizer.")
-        st.stop()
-        
+    """Loads the model and vectorizer from files."""
     try:
-        model = load(model_path)
-        vectorizer = load(vectorizer_path)
-        return model, vectorizer
-    except Exception as e:
-        st.error(f"Error loading model or vectorizer: {e}")
-        st.stop()
+        # Load MultinomialNB Model
+        nb_model = joblib.load('naive_bayes_intent_model.joblib')
+        
+        # Load TFIDF Vectorizer
+        vectorizer = joblib.load('tfidf_vectorizerNB.joblib')
+        
+        return nb_model, vectorizer
+    except FileNotFoundError as e:
+        st.error(f"Error loading required model files. Please ensure all files (naive_bayes_intent_model.joblib, tfidf_vectorizer.joblib) are in the same directory. Missing file: {e.filename}")
+        return None, None
 
 nb_model, vectorizer = load_resources()
 
-# Initialize chat history in session state
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# --- D. Prediction Function ---
+def predict_intent(text):
+    """
+    Predicts the intent using the Naive Bayes model and applies a confidence threshold.
+    """
+    if nb_model is None or vectorizer is None or not is_nltk_ready:
+        return "setup_error", RESPONSE_DICT.get("unrecognized_intent"), "N/A"
 
-# Display chat messages from history on app rerun
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    # 1. Preprocessing and Feature Extraction
+    user_input_cleaned = preprocess_text(text)
+    vector = vectorizer.transform([user_input_cleaned])
 
-# Accept user input
-if prompt := st.chat_input("Ask a question about the hotel (e.g., 'What is the check-in time?'):"):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    # Display user message in chat message container
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    # 2. Get Probability Predictions
+    # MultinomialNB provides probabilities via predict_proba
+    predictions_proba = nb_model.predict_proba(vector)[0]
+    
+    # Get the index (ID) of the highest probability
+    predicted_index = np.argmax(predictions_proba)
+    # Get the confidence score (the highest probability)
+    confidence_score = np.max(predictions_proba)
+    
+    # Get the predicted intent name (MultinomialNB.classes_ contains the intent names)
+    predicted_intent_name = nb_model.classes_[predicted_index]
 
-    # Generate chatbot response
-    with st.chat_message("assistant"):
-        # 🌟 Key Modification: Receive confidence
-        response, predicted_intent, confidence = chatbot_reply_nb(prompt, nb_model, vectorizer, RESPONSES)
-        
-        # Display the main response
-        st.markdown(response)
-        
-        # Display the predicted intent and confidence (even for fallback)
-        st.caption(f"🤖 Predicted Intent: **{predicted_intent}** | Confidence: **{confidence:.2f}**")
-        
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": response})
+    # 3. Apply Confidence Threshold Logic
+    if confidence_score < CONFIDENCE_THRESHOLD:
+        intent_name = "unrecognized_intent"
+        response = RESPONSE_DICT.get(intent_name)
+    else:
+        intent_name = predicted_intent_name
+        # Retrieve the specific response for the predicted intent
+        response = RESPONSE_DICT.get(intent_name, RESPONSE_DICT['unrecognized_intent'])
 
-# Optional: Display a list of known intents for guidance
-st.sidebar.header("Known Intents")
-st.sidebar.info("The chatbot can answer questions related to these topics:")
-st.sidebar.text(f"- {', '.join(RESPONSES.keys())}")
+    confidence_display = f"{confidence_score*100:.2f}%"
+    
+    return intent_name, response, confidence_display
+
+
+# --- E. Streamlit App Layout ---
+def main():
+    st.set_page_config(page_title="NB Intent Chatbot (TF-IDF)", layout="centered")
+
+    st.title("🤖 Hotel Intent Recognition Chatbot (Naive Bayes)")
+    st.markdown("基于 **TF-IDF** 和 **Multinomial Naive Bayes** 模型")
+
+    st.info(f"**Confidence Threshold for Unrecognized Intent:** {CONFIDENCE_THRESHOLD*100:.0f}% (用于判断模型置信度是否足够)")
+    
+    # User Input
+    user_input = st.text_input("**Your Query:**", placeholder="E.g., I want to book a room. Do you have a gym?")
+    
+    # Create the button ONLY ONCE
+    button_clicked = st.button("🚀 **Get Chatbot Response**") 
+
+    if button_clicked:
+        if user_input:
+            with st.spinner('Analyzing query...'):
+                # Predict the intent
+                intent_name, response, confidence_display = predict_intent(user_input)
+                
+                # --- Display Results ---
+                st.markdown("---")
+                
+                st.subheader("💡 Analysis Result")
+                
+                # Highlight the predicted intent
+                if intent_name == "unrecognized_intent" or intent_name == "setup_error":
+                    st.error(f"**Predicted Intent:** `{intent_name}` (Confidence: {confidence_display})")
+                else:
+                    st.success(f"**Predicted Intent:** `{intent_name}` (Confidence: {confidence_display})")
+
+                st.subheader("💬 Chatbot Response")
+                st.markdown(f"> **{response}**")
+                
+        else:
+            # Handle the case where the button is clicked but the input is empty
+            st.warning("Please enter a query to get a response.")
+
+if __name__ == "__main__":
+    main()
