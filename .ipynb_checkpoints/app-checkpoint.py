@@ -1,50 +1,78 @@
+# app.py
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import nltk
 from joblib import load
-import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+import nltk 
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
-import os
+import re
 
-# --- NLTK Resource Setup ---
-# Check if NLTK resources are downloaded, if not, try to download them.
-# In a Streamlit environment, this helps ensure they are available.
 try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/wordnet')
-    nltk.data.find('corpora/stopwords')
-except nltk.downloader.DownloadError:
-    st.info("Downloading NLTK resources...")
+    # 这些变量现在是全局的，并且在脚本开始时就被定义了
+    stop_words = set(stopwords.words('english'))
+    lemmatizer = WordNetLemmatizer()
+except LookupError:
+    # 如果下载失败，我们在这里可以捕获并提供错误
+    st.error("NLTK data (stopwords, wordnet) not found. Please ensure resources are downloaded and accessible.")
+    st.stop()
+
+# --- NLTK 资源加载函数 (使用 Streamlit 缓存) ---
+@st.cache_resource
+def load_nltk_data():
+    """Download NLTK resources once and initialize tools."""
     try:
-        nltk.download('punkt')
-        nltk.download('punkt_tab')
-        nltk.download('wordnet')
-        nltk.download('stopwords')
-        st.success("NLTK Resources downloaded successfully!")
+        # 显式下载所有必需的资源
+        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True)
+        nltk.download('stopwords', quiet=True)
+        nltk.download('wordnet', quiet=True)
+        
+        return stop_words, lemmatizer
     except Exception as e:
-        st.error(f"Failed to download NLTK resources: {e}")
-        st.stop() # Stop the script if critical resources can't be downloaded
+        st.error(f"Failed to download NLTK data: {e}")
+        st.stop()
 
-# Initialize NLTK resources
-stop_words = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
+# 在应用启动时调用一次
+load_nltk_data()
 
-# --- Preprocessing Function (Copied from your training script) ---
+# --- 1. Constants and Initial Setup ---
+MODEL_PATH = 'naive_bayes_intent_model.joblib'
+VECTORIZER_PATH = 'tfidf_vectorizer.joblib'
+DATASET_PATH = 'dataset.csv' # 新增：数据集路径
+
+# --- 2. Load Model, Vectorizer, and Data ---
+
+@st.cache_resource # 缓存资源以避免在每次重运行时重复加载
+def load_resources():
+    """加载保存的模型、向量化器和数据集。"""
+    model, vectorizer, df = None, None, None
+    try:
+        model = load(MODEL_PATH)
+        vectorizer = load(VECTORIZER_PATH)
+    except FileNotFoundError:
+        st.error(f"Error: Could not find model or vectorizer files. Please ensure '{MODEL_PATH}' and '{VECTORIZER_PATH}' are present.")
+        st.stop()
+    except Exception as e:
+        st.error(f"An error occurred while loading resources: {e}")
+        st.stop()
+        
+    try:
+        df = pd.read_csv(DATASET_PATH)
+    except FileNotFoundError:
+        st.warning(f"Warning: Could not find dataset file '{DATASET_PATH}'. Quick query buttons will be disabled.")
+    except Exception as e:
+        st.error(f"An error occurred while loading the dataset: {e}")
+        
+
+nb_model, vectorizer, df_data = load_resources()
+
 def preprocess_text(text):
-    """
-    Standard preprocessing pipeline for text:
-    1. Lowercase
-    2. Remove punctuation/special chars
-    3. Tokenization
-    4. Stopword Removal
-    5. Lemmatization
-    """
-    if not isinstance(text, str):
-        return "" # Handle non-string input safely
-
+    """Applies the same NLTK preprocessing steps as used during training."""
     # 1. Convert to Lowercase
     text = text.lower()
     
@@ -57,15 +85,15 @@ def preprocess_text(text):
     # 4. Stopword Removal
     tokens = [word for word in tokens if word not in stop_words]
     
-    # 5. Lemmatization
+    # 5. Lemmatization (Key Enhancement)
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
     
     # Rejoin tokens into a single string
     return ' '.join(tokens)
 
-# --- Chatbot Core Function ---
-# Predefined fixed responses (Retrieval System)
-RESPONSES = {
+# --- 3. Predefined Responses ---
+
+responses = {
     "ask_room_price": "Our rooms start from RM180 per night.",
     "ask_availability": "We currently have several rooms available.",
     "ask_facilities": "We offer free Wi-Fi, breakfast, pool, gym and parking.",
@@ -78,86 +106,87 @@ RESPONSES = {
     "goodbye" : "Goodbye! Have a great day!"
 }
 
+# --- 4. Chatbot Logic Function (Same as before) ---
+
 def chatbot_reply_nb(user_input, model, vectorizer, responses):
-    # 1. Preprocessing (using the full function for consistency)
-    cleaned_input = preprocess_text(user_input)
+    """根据用户输入预测意图并返回相应回复。"""
+    if not user_input.strip():
+        return "Please enter a question to start the conversation.", "Empty Input", 0.0
 
-    # 2. Feature Extraction: Transform the cleaned input using the fitted vectorizer
-    if cleaned_input:
-        vector = vectorizer.transform([cleaned_input])
+    processed_input = preprocess_text(user_input)
+    vector = vectorizer.transform([processed_input])
+    probabilities = model.predict_proba(vector)[0]
+    intent_index = np.argmax(probabilities)
+    confidence = probabilities[intent_index]
+    intent = model.classes_[intent_index]
+    
+    CONFIDENCE_THRESHOLD = 0.3
+    
+    if confidence < CONFIDENCE_THRESHOLD:
+        reply = f"Sorry, I'm not sure I understand. My predicted intent ('{intent}') had a low confidence score ({confidence:.2f}). Could you please rephrase?"
+        predicted_intent = "Fallback (Low Confidence)"
     else:
-        return "I couldn't process your input. Please try a different question.", "unknown_error"
+        reply = responses.get(intent, f"Sorry, I predicted the intent **'{intent}'** (Confidence: {confidence:.2f}), but I don't have a specific response for that yet. Please rephrase your question.")
+        predicted_intent = intent
 
-    # 3. Intent Prediction
-    intent = model.predict(vector)[0]
+    return reply, predicted_intent, confidence
 
-    # 4. Retrieval 
-    response = responses.get(intent, f"Sorry, I predicted the intent '{intent}', but I don't have a specific response for that yet. Please rephrase your question.")
+# --- 5. Core Chat Function (Handles the interaction flow) ---
+
+def handle_chat_interaction(prompt):
+    """处理用户输入、更新聊天历史并生成回复。"""
+    # 1. 存储用户消息到历史
+    st.session_state.messages.append({"role": "user", "content": prompt})
     
-    return response, intent
-
-# --- Streamlit Application Layout and Logic ---
-
-# Title and Description
-st.title("🛎️ Hotel Booking Intent Chatbot")
-st.markdown("""
-This chatbot uses a **Multinomial Naive Bayes** model trained on TF-IDF features 
-to classify user intent and provide a relevant, predefined response.
-""")
-
-# Load Model and Vectorizer (Use st.cache_resource for efficiency)
-@st.cache_resource
-def load_resources():
-    model_path = 'naive_bayes_intent_model.joblib'
-    vectorizer_path = 'tfidf_vectorizer.joblib'
+    # 2. 获取聊天机器人回复
+    reply, predicted_intent, confidence = chatbot_reply_nb(prompt, nb_model, vectorizer, responses)
     
-    if not os.path.exists(model_path) or not os.path.exists(vectorizer_path):
-        st.error(f"Required files not found: '{model_path}' and/or '{vectorizer_path}'.")
-        st.warning("Please ensure you run your training script first to save the model and vectorizer.")
-        st.stop()
-        
-    try:
-        model = load(model_path)
-        vectorizer = load(vectorizer_path)
-        return model, vectorizer
-    except Exception as e:
-        st.error(f"Error loading model or vectorizer: {e}")
-        st.stop()
+    # 3. 存储机器人消息到历史
+    st.session_state.messages.append({"role": "assistant", "content": reply, "intent": predicted_intent, "confidence": confidence})
+    
+    # 4. 强制重新运行以显示新的历史消息
+    # Streamlit 通常会自己刷新，但这个 pattern 在某些情况下更可靠
+    st.rerun()
 
-nb_model, vectorizer = load_resources()
 
-# Initialize chat history in session state
+# --- 6. Streamlit UI Setup ---
+
+st.set_page_config(page_title="Intent-Based Chatbot Demo", layout="centered")
+
+st.title("🛎️ Intent-Based Chatbot Demo")
+st.markdown("Powered by **Multinomial Naive Bayes** and **TF-IDF**.")
+
+# 初始化对话历史（使用 session state）
 if "messages" not in st.session_state:
     st.session_state.messages = []
+    # 初始欢迎语
+    initial_response = responses["greeting"]
+    st.session_state.messages.append({"role": "assistant", "content": initial_response, "intent": "greeting", "confidence": 1.0})
 
-# Display chat messages from history on app rerun
+# --- Quick Query Buttons ---
+if df_data is not None and not df_data.empty:
+    st.markdown("---")
+    st.subheader("🚀 Quick Queries from Dataset")
+    
+    # 从数据集中随机抽取最多 5 个样本
+    quick_queries = df_data['text'].sample(min(5, len(df_data)), random_state=42).tolist()
+    
+    # 使用 st.columns 或 st.button 来创建按钮布局
+    cols = st.columns(len(quick_queries))
+    for i, query in enumerate(quick_queries):
+        if cols[i].button(query):
+            # 当按钮被点击时，调用处理函数
+            handle_chat_interaction(query)
+
+# --- Display Chat History ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        if message["role"] == "assistant":
+            if "intent" in message and message["intent"] != "greeting":
+                st.caption(f"**Predicted Intent:** {message['intent']} | **Confidence:** {message['confidence']:.2f}")
 
-# Accept user input
-if prompt := st.chat_input("Ask a question about the hotel (e.g., 'What is the check-in time?'):"):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    # Display user message in chat message container
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# --- User Input Text Box ---
+if prompt := st.chat_input("Ask a question about the hotel:"):
+    handle_chat_interaction(prompt)
 
-    # Generate chatbot response
-    with st.chat_message("assistant"):
-        # Get the response and the predicted intent
-        response, predicted_intent = chatbot_reply_nb(prompt, nb_model, vectorizer, RESPONSES)
-        
-        # Display the main response
-        st.markdown(response)
-        
-        # Display the predicted intent as a debug/info note
-        st.caption(f"🤖 Predicted Intent: **{predicted_intent}**")
-        
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-# Optional: Display a list of known intents for guidance
-st.sidebar.header("Known Intents")
-st.sidebar.info("The chatbot can answer questions related to these topics:")
-st.sidebar.text(f"- {', '.join(RESPONSES.keys())}")
