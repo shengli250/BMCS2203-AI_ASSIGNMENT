@@ -9,9 +9,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 import os
 
-# --- NLTK Resource Setup ---
-# Check if NLTK resources are downloaded, if not, try to download them.
-# In a Streamlit environment, this helps ensure they are available.
+# --- NLTK Resource Setup (Kept unchanged) ---
 try:
     nltk.data.find('tokenizers/punkt')
     nltk.data.find('corpora/wordnet')
@@ -19,51 +17,32 @@ try:
 except LookupError:
     st.info("Downloading NLTK resources...")
     try:
+        # Note: The original code had an extra 'tokenizers/punkt_tab' check, which is unusual.
+        # Standardizing the download attempts here for common resources.
         nltk.download('punkt')
-        nltk.download('punkt_tab')
         nltk.download('wordnet')
         nltk.download('stopwords')
         st.success("NLTK Resources downloaded successfully!")
     except Exception as e:
         st.error(f"Failed to download NLTK resources: {e}")
-        st.stop() # Stop the script if critical resources can't be downloaded
+        st.stop()
 
 # Initialize NLTK resources
 stop_words = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
 
-# --- Preprocessing Function (Copied from your training script) ---
+# --- Preprocessing Function (Kept unchanged) ---
 def preprocess_text(text):
-    """
-    Standard preprocessing pipeline for text:
-    1. Lowercase
-    2. Remove punctuation/special chars
-    3. Tokenization
-    4. Stopword Removal
-    5. Lemmatization
-    """
     if not isinstance(text, str):
-        return "" # Handle non-string input safely
-
-    # 1. Convert to Lowercase
+        return "" 
     text = text.lower()
-    
-    # 2. Remove Punctuation and Special Characters
     text = re.sub(r'[^\w\s]', '', text)
-    
-    # 3. Tokenization
     tokens = word_tokenize(text)
-    
-    # 4. Stopword Removal
     tokens = [word for word in tokens if word not in stop_words]
-    
-    # 5. Lemmatization
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
-    
-    # Rejoin tokens into a single string
     return ' '.join(tokens)
 
-# --- Chatbot Core Function ---
+# --- Chatbot Core Function (Focus of modification) ---
 # Predefined fixed responses (Retrieval System)
 RESPONSES = {
     "ask_room_price": "Our rooms start from RM180 per night.",
@@ -78,23 +57,40 @@ RESPONSES = {
     "goodbye" : "Goodbye! Have a great day!"
 }
 
+# 🌟 Key Modification: Added confidence check
 def chatbot_reply_nb(user_input, model, vectorizer, responses):
-    # 1. Preprocessing (using the full function for consistency)
+    # 1. Preprocessing
     cleaned_input = preprocess_text(user_input)
 
-    # 2. Feature Extraction: Transform the cleaned input using the fitted vectorizer
-    if cleaned_input:
-        vector = vectorizer.transform([cleaned_input])
-    else:
-        return "I couldn't process your input. Please try a different question.", "unknown_error"
+    # 2. Feature Extraction
+    if not cleaned_input:
+        return "Please provide a valid question.", "Empty Input", 1.0 # Returns a clear error message
 
-    # 3. Intent Prediction
-    intent = model.predict(vector)[0]
+    vector = vectorizer.transform([cleaned_input])
 
-    # 4. Retrieval 
-    response = responses.get(intent, f"Sorry, I predicted the intent '{intent}', but I don't have a specific response for that yet. Please rephrase your question.")
+    # 3. Intent Prediction and Confidence
+    # Naive Bayes model's predict_proba returns the probability for each class
+    probabilities = model.predict_proba(vector)[0]
+    intent_index = np.argmax(probabilities)
+    confidence = probabilities[intent_index]
+    intent = model.classes_[intent_index]
+
+    # 🌟 Set Confidence Threshold (Adjustable)
+    CONFIDENCE_THRESHOLD = 0.1 
     
-    return response, intent
+    # 4. Retrieval and Fallback Logic
+    if confidence < CONFIDENCE_THRESHOLD:
+        # 🌟 Low Confidence Fallback
+        response = "I'm sorry, I don't seem to understand that question. Could you please rephrase or ask about price, availability, or facilities?"
+        predicted_intent = "Fallback (Low Confidence)"
+    else:
+        # High confidence, check for predefined response
+        response = responses.get(intent, 
+            f"Sorry, I predicted the intent **'{intent}'** with high confidence ({confidence:.2f}), but I don't have a specific response for that yet. Please rephrase your question."
+        )
+        predicted_intent = intent
+        
+    return response, predicted_intent, confidence
 
 # --- Streamlit Application Layout and Logic ---
 
@@ -103,6 +99,7 @@ st.title("🛎️ Hotel Booking Intent Chatbot")
 st.markdown("""
 This chatbot uses a **Multinomial Naive Bayes** model trained on TF-IDF features 
 to classify user intent and provide a relevant, predefined response.
+**New:** It now includes a **confidence check** to provide a fallback message if it's unsure.
 """)
 
 # Load Model and Vectorizer (Use st.cache_resource for efficiency)
@@ -145,14 +142,14 @@ if prompt := st.chat_input("Ask a question about the hotel (e.g., 'What is the c
 
     # Generate chatbot response
     with st.chat_message("assistant"):
-        # Get the response and the predicted intent
-        response, predicted_intent = chatbot_reply_nb(prompt, nb_model, vectorizer, RESPONSES)
+        # 🌟 Key Modification: Receive confidence
+        response, predicted_intent, confidence = chatbot_reply_nb(prompt, nb_model, vectorizer, RESPONSES)
         
         # Display the main response
         st.markdown(response)
         
-        # Display the predicted intent as a debug/info note
-        st.caption(f"🤖 Predicted Intent: **{predicted_intent}**")
+        # Display the predicted intent and confidence (even for fallback)
+        st.caption(f"🤖 Predicted Intent: **{predicted_intent}** | Confidence: **{confidence:.2f}**")
         
         # Add assistant response to chat history
         st.session_state.messages.append({"role": "assistant", "content": response})

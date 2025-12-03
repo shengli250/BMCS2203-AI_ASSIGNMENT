@@ -9,15 +9,16 @@ from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 import os
 
-# --- NLTK Resource Setup (保持不变) ---
+# --- NLTK Resource Setup (Kept unchanged) ---
 try:
     nltk.data.find('tokenizers/punkt')
-    nltk.data.find('tokenizers/punkt_tab')
     nltk.data.find('corpora/wordnet')
     nltk.data.find('corpora/stopwords')
 except LookupError:
     st.info("Downloading NLTK resources...")
     try:
+        # Note: The original code had an extra 'tokenizers/punkt_tab' check, which is unusual.
+        # Standardizing the download attempts here for common resources.
         nltk.download('punkt')
         nltk.download('wordnet')
         nltk.download('stopwords')
@@ -30,7 +31,7 @@ except LookupError:
 stop_words = set(stopwords.words('english'))
 lemmatizer = WordNetLemmatizer()
 
-# --- Preprocessing Function (保持不变) ---
+# --- Preprocessing Function (Kept unchanged) ---
 def preprocess_text(text):
     if not isinstance(text, str):
         return "" 
@@ -41,7 +42,7 @@ def preprocess_text(text):
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
     return ' '.join(tokens)
 
-# --- Chatbot Core Function (重点修改这里) ---
+# --- Chatbot Core Function (Focus of modification) ---
 # Predefined fixed responses (Retrieval System)
 RESPONSES = {
     "ask_room_price": "Our rooms start from RM180 per night.",
@@ -56,39 +57,39 @@ RESPONSES = {
     "goodbye" : "Goodbye! Have a great day!"
 }
 
-# 🌟 关键修改：添加置信度检查
+# 🌟 Key Modification: Added confidence check
 def chatbot_reply_nb(user_input, model, vectorizer, responses):
     # 1. Preprocessing
     cleaned_input = preprocess_text(user_input)
 
     # 2. Feature Extraction
     if not cleaned_input:
-        return "Please provide a valid question.", "Empty Input", 1.0 # 返回一个明确的错误信息
+        return "Please provide a valid question.", "Empty Input", 1.0 # Returns a clear error message
 
     vector = vectorizer.transform([cleaned_input])
 
     # 3. Intent Prediction and Confidence
-    # Naive Bayes 模型的 predict_proba 返回每个类别的概率
+    # Naive Bayes model's predict_proba returns the probability for each class
     probabilities = model.predict_proba(vector)[0]
     intent_index = np.argmax(probabilities)
     confidence = probabilities[intent_index]
     intent = model.classes_[intent_index]
 
-    # 🌟 设置置信度阈值 (可调整)
+    # 🌟 Set Confidence Threshold (Adjustable)
     CONFIDENCE_THRESHOLD = 0.1 
     
     # 4. Retrieval and Fallback Logic
     if confidence < CONFIDENCE_THRESHOLD:
-        # 🌟 低置信度回退
+        # 🌟 Low Confidence Fallback
         response = "I'm sorry, I don't seem to understand that question. Could you please rephrase or ask about price, availability, or facilities?"
         predicted_intent = "Fallback (Low Confidence)"
     else:
-        # 高置信度，检查是否有预设回复
+        # High confidence, check for predefined response
         response = responses.get(intent, 
             f"Sorry, I predicted the intent **'{intent}'** with high confidence ({confidence:.2f}), but I don't have a specific response for that yet. Please rephrase your question."
         )
         predicted_intent = intent
-    
+        
     return response, predicted_intent, confidence
 
 # --- Streamlit Application Layout and Logic ---
@@ -141,13 +142,13 @@ if prompt := st.chat_input("Ask a question about the hotel (e.g., 'What is the c
 
     # Generate chatbot response
     with st.chat_message("assistant"):
-        # 🌟 关键修改：接收置信度
+        # 🌟 Key Modification: Receive confidence
         response, predicted_intent, confidence = chatbot_reply_nb(prompt, nb_model, vectorizer, RESPONSES)
         
         # Display the main response
         st.markdown(response)
         
-        # Display the predicted intent and confidence (即使是回退也显示)
+        # Display the predicted intent and confidence (even for fallback)
         st.caption(f"🤖 Predicted Intent: **{predicted_intent}** | Confidence: **{confidence:.2f}**")
         
         # Add assistant response to chat history
