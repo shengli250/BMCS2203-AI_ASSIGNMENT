@@ -75,7 +75,7 @@ def chatbot_reply_nb(user_input, model, vectorizer, responses):
     intent = model.classes_[intent_index]
 
     # 🌟 Set Confidence Threshold (Adjustable)
-    CONFIDENCE_THRESHOLD = 0.1 
+    CONFIDENCE_THRESHOLD = 0.7 
     
     # 4. Retrieval and Fallback Logic
     if confidence < CONFIDENCE_THRESHOLD:
