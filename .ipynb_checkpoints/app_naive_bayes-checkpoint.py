@@ -20,6 +20,7 @@ except LookupError:
         # Note: The original code had an extra 'tokenizers/punkt_tab' check, which is unusual.
         # Standardizing the download attempts here for common resources.
         nltk.download('punkt')
+        nltk.download('punkt_tab')
         nltk.download('wordnet')
         nltk.download('stopwords')
         st.success("NLTK Resources downloaded successfully!")
