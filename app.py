@@ -20,6 +20,7 @@ except nltk.downloader.DownloadError:
     st.info("Downloading NLTK resources...")
     try:
         nltk.download('punkt')
+        nltk.download('punkt_tab')
         nltk.download('wordnet')
         nltk.download('stopwords')
         st.success("NLTK Resources downloaded successfully!")
