@@ -90,44 +90,57 @@ def predict_intent(text):
     return intent_name, response, confidence_display
 
 
-# --- D. Streamlit App Layout ---
+# --- D. Streamlit App Layout (替换后的聊天记录模式) ---
 def main():
     st.set_page_config(page_title="Hotel Intent Chatbot", layout="centered")
 
     st.title("🛎️ Hotel Intent Recognition Chatbot")
-    st.markdown("Enter a user query to predict the intent and get a response.")
+    st.caption(f"LSTM Model | Confidence Threshold: **{CONFIDENCE_THRESHOLD*100:.0f}%**")
 
-    st.info(f"**Confidence Threshold for Unrecognized Intent:** {CONFIDENCE_THRESHOLD*100:.0f}%")
+    # 1. 初始化聊天历史 (Session State)
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        # 增加一个初始的问候消息
+        st.session_state.messages.append({"role": "assistant", "content": RESPONSE_DICT['greeting']})
+
+    # 2. 显示聊天历史
+    # 使用 st.chat_message 来渲染对话气泡
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            # 如果是助手的回复，额外显示置信度和意图
+            if message["role"] == "assistant" and "intent" in message:
+                st.caption(f"Intent: **{message['intent']}** | Confidence: **{message['confidence']}**")
+            st.markdown(message["content"])
+
+    # 3. 处理用户输入
+    # 使用 st.chat_input 替换 st.text_input 和 st.button
+    user_input = st.chat_input("How may I assist you with your booking?")
     
-    # User Input
-    user_input = st.text_input("**Your Query:**", placeholder="E.g., What time is check-in?")
-    
-    # ***FIX: Create the button ONLY ONCE and store its state***
-    button_clicked = st.button("**Get Chatbot Response**") 
+    if user_input:
+        # 3a. 将用户输入添加到历史记录并显示
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        
+        # 立即在界面上显示用户输入
+        with st.chat_message("user"):
+            st.markdown(user_input)
 
-    if button_clicked:
-        if user_input:
-            with st.spinner('Analyzing query...'):
-                # Predict the intent
-                intent_name, response, confidence_display = predict_intent(user_input)
-                
-                # --- Display Results ---
-                st.markdown("---")
-                
-                st.subheader("💡 Analysis Result")
-                
-                # Highlight the predicted intent
-                if intent_name == "unrecognized_intent":
-                    st.error(f"**Predicted Intent:** `{intent_name}` (Confidence: {confidence_display})")
-                else:
-                    st.success(f"**Predicted Intent:** `{intent_name}` (Confidence: {confidence_display})")
+        # 3b. 进行预测并生成回复
+        with st.spinner('Analyzing query...'):
+            intent_name, response, confidence_display = predict_intent(user_input)
+            
+            # 3c. 将助手回复添加到历史记录
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": response,
+                "intent": intent_name,
+                "confidence": confidence_display
+            })
 
-                st.subheader("💬 Chatbot Response")
-                st.markdown(f"> **{response}**")
-                
-        else:
-            # Handle the case where the button is clicked but the input is empty
-            st.warning("Please enter a query to get a response.")
+            # 3d. 在界面上显示助手回复
+            with st.chat_message("assistant"):
+                # 高亮显示意图和置信度
+                st.caption(f"Intent: **{intent_name}** | Confidence: **{confidence_display}**")
+                st.markdown(response)
 
 if __name__ == "__main__":
     main()
