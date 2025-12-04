@@ -156,15 +156,13 @@ def main():
         st.session_state.messages.append({"role": "assistant", "content": RESPONSE_DICT['greeting']})
 
     # 2. Display chat history
-    # Use st.chat_message to render dialogue bubbles
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            # If it's the assistant's reply, additionally show confidence and intent
             if message["role"] == "assistant" and "intent" in message:
                 st.caption(f"Intent: **{message['intent']}** | Confidence: **{message['confidence']}**")
             st.markdown(message["content"])
 
-    # 3. Process user input
+    # --- 3. Suggested Questions (Buttons) ---
     # Select 3 random intents for suggestions
     if SUGGESTED_INTENTS:
         # Ensure we don't try to select more than available
@@ -184,34 +182,42 @@ def main():
                 if st.button(prompt_text, key=f"btn_{intent_key}", use_container_width=True):
                     button_input = prompt_text
 
+    # --- 4. Handle User/Button Input ---
     # Check for button input first, then fall back to chat_input
     if button_input:
         user_input = button_input
     else:
         # Use st.chat_input for manual text input
         user_input = st.chat_input("How can I help you?")
+
     
     if user_input:
-        # 3a. Add user input to history and display
+        # 4a. Add user input to history and display
         st.session_state.messages.append({"role": "user", "content": user_input})
         
-        # Display user input immediately on the interface
-        with st.chat_message("user"):
-            st.markdown(user_input)
+        # Rerun to display the new message immediately
+        st.rerun()
 
-        # 3b. Perform prediction and generate reply
+    # If the history was just updated, process the *last* user message
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+        current_user_input = st.session_state.messages[-1]["content"]
+
+        # 4b. Perform prediction and generate reply
         with st.spinner('Analyzing query...'):
-            intent_name, response, confidence_display = predict_intent(user_input)
+            intent_name, response, confidence_display = predict_intent(current_user_input)
             
-            # 3c. Add assistant reply to history
+            # 4c. Add assistant reply to history
             st.session_state.messages.append({
                 "role": "assistant", 
                 "content": response,
                 "intent": intent_name,
                 "confidence": confidence_display
             })
+            
+            # Rerun again to show the assistant's response in the main loop display
+            st.rerun()
 
-            # 3d. Display assistant reply on the interface
+            # 4d. Display assistant reply on the interface
             with st.chat_message("assistant"):
                 # Highlight intent and confidence
                 st.caption(f"Intent: **{intent_name}** | Confidence: **{confidence_display}**")
