@@ -149,15 +149,6 @@ def main():
     st.title("🤖 Hotel Chatbot (ANN/MLP)")
     st.caption(f"Confidence Threshold: **{CONFIDENCE_THRESHOLD*100:.0f}%**")
 
-    # --- DEBUG SECTION ---
-    # Use st.sidebar to keep debug info clean and separate
-    debug_log = st.sidebar.container()
-    debug_log.markdown("## 🐛 Debug Log")
-    debug_log.write(f"App Run Timestamp: {st.session_state.get('run_count', 0) + 1}")
-    if 'run_count' not in st.session_state:
-        st.session_state['run_count'] = 0
-    st.session_state['run_count'] += 1
-
     # 1. Initialize chat history (Session State)
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -192,7 +183,9 @@ def main():
                 # Check if the button is clicked, and if so, set the input text
                 if st.button(prompt_text, key=f"btn_{intent_key}", use_container_width=True):
                     # Store the button text in session_state and trigger a rerun
-                    debug_log.info(f"Button Clicked! Input: '{prompt_text}'. Triggering RERUN 1.")
+                    print(f"--- [DEBUG] Button Clicked ---")
+                    print(f"Captured Pending Input: {prompt_text}")
+                    print(f"Triggering RERUN 1\n")
                     st.session_state.pending_input = prompt_text
                     st.rerun()
 
@@ -202,29 +195,35 @@ def main():
     # Priority check: If there is a pending input from a button click
     if st.session_state.pending_input:
         user_input = st.session_state.pending_input
-        debug_log.info(f"Processing PENDING Input (Button): '{user_input}'")
+        print(f"--- [DEBUG] Processing Input ---")
+        print(f"Source: Button (Pending Input)")
+        print(f"Input Text: {user_input}")
         # Clear the pending input immediately after retrieval
         st.session_state.pending_input = None
     else:
         user_input = st.chat_input("How can I help you?")
         if user_input:
-            debug_log.info(f"Processing CHAT Input (Text): '{user_input}'")
+            print(f"--- [DEBUG] Processing Input ---")
+            print(f"Source: Chat Input")
+            print(f"Input Text: {user_input}")
 
     if user_input:
         # 4a. Add user input to history and display
         st.session_state.messages.append({"role": "user", "content": user_input})
-        debug_log.info("User message added to history.")
+        print(f"User message added to history.")
 
     # If the history was just updated, process the *last* user message
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
         current_user_input = st.session_state.messages[-1]["content"]
-        debug_log.info(f"Starting Prediction for: '{current_user_input}'")
+        print(f"--- [DEBUG] Prediction Cycle Start ---")
+        print(f"Query for Prediction: {current_user_input}")
 
         # 4b. Perform prediction and generate reply
         with st.spinner('Analyzing query...'):
             intent_name, response, confidence_display = predict_intent(current_user_input)
 
-            debug_log.success(f"Prediction Complete. Intent: {intent_name}, Confidence: {confidence_display}")
+            print(f"Prediction Result: Intent='{intent_name}', Confidence={confidence_display}")
+            print(f"Triggering RERUN 2 (Final Display)\n")
             
             # 4c. Add assistant reply to history
             st.session_state.messages.append({
