@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import joblib
 import nltk
+import random
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
@@ -149,8 +150,31 @@ def main():
             st.markdown(message["content"])
 
     # 3. Process user input
-    # Use st.chat_input to replace st.text_input and st.button
-    user_input = st.chat_input("How can I help you?")
+    # Select 3 random intents for suggestions
+    if SUGGESTED_INTENTS:
+        # Ensure we don't try to select more than available
+        num_suggestions = min(3, len(SUGGESTED_INTENTS))
+        random_intents = random.sample(SUGGESTED_INTENTS, num_suggestions)
+
+        st.markdown("**Suggested Questions:**")
+        cols = st.columns(num_suggestions)
+
+        # Use a placeholder to store the button-generated input
+        button_input = None
+
+        for i, intent_key in enumerate(random_intents):
+            prompt_text = PROMPT_MAPPING[intent_key]
+            with cols[i]:
+                # Check if the button is clicked, and if so, set the input text
+                if st.button(prompt_text, key=f"btn_{intent_key}", use_container_width=True):
+                    button_input = prompt_text
+
+    # Check for button input first, then fall back to chat_input
+    if button_input:
+        user_input = button_input
+    else:
+        # Use st.chat_input for manual text input
+        user_input = st.chat_input("How can I help you?")
     
     if user_input:
         # 3a. Add user input to history and display
