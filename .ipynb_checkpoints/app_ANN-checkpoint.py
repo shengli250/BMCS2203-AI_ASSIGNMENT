@@ -155,6 +155,10 @@ def main():
         # Add an initial greeting message
         st.session_state.messages.append({"role": "assistant", "content": RESPONSE_DICT['greeting']})
 
+    # Initialize state for handling button clicks (Suggested Questions)
+    if "pending_input" not in st.session_state:
+        st.session_state.pending_input = None
+
     # 2. Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -172,8 +176,15 @@ def main():
         st.markdown("**Suggested Questions:**")
         cols = st.columns(num_suggestions)
 
-        # Use a placeholder to store the button-generated input
-        button_input = None
+        # Iterate through random intents to create buttons
+        for i, intent_key in enumerate(random_intents):
+    prompt_text = PROMPT_MAPPING[intent_key]
+    with cols[i]:
+        # Check if the button is clicked, and if so, set the input text
+        if st.button(prompt_text, key=f"btn_{intent_key}", use_container_width=True):
+            # Store the button text in session_state and trigger a rerun
+            st.session_state.pending_input = prompt_text
+            st.rerun()
 
         for i, intent_key in enumerate(random_intents):
             prompt_text = PROMPT_MAPPING[intent_key]
@@ -183,14 +194,16 @@ def main():
                     button_input = prompt_text
 
     # --- 4. Handle User/Button Input ---
-    # Check for button input first, then fall back to chat_input
-    if button_input:
-        user_input = button_input
+    user_input = None
+
+    # Priority check: If there is a pending input from a button click
+    if st.session_state.pending_input:
+        user_input = st.session_state.pending_input
+        # Clear the pending input immediately after retrieval
+        st.session_state.pending_input = None
     else:
-        # Use st.chat_input for manual text input
         user_input = st.chat_input("How can I help you?")
 
-    
     if user_input:
         # 4a. Add user input to history and display
         st.session_state.messages.append({"role": "user", "content": user_input})
