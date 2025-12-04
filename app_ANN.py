@@ -186,13 +186,6 @@ def main():
             st.session_state.pending_input = prompt_text
             st.rerun()
 
-        for i, intent_key in enumerate(random_intents):
-            prompt_text = PROMPT_MAPPING[intent_key]
-            with cols[i]:
-                # Check if the button is clicked, and if so, set the input text
-                if st.button(prompt_text, key=f"btn_{intent_key}", use_container_width=True):
-                    button_input = prompt_text
-
     # --- 4. Handle User/Button Input ---
     user_input = None
 
