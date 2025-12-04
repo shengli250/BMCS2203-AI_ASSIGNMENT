@@ -194,9 +194,6 @@ def main():
     if user_input:
         # 4a. Add user input to history and display
         st.session_state.messages.append({"role": "user", "content": user_input})
-        
-        # Rerun to display the new message immediately
-        st.rerun()
 
     # If the history was just updated, process the *last* user message
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
